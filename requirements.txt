@@ -1,0 +1,10 @@
+'''
+selenium
+pandas
+numpy
+torch
+scikit-learn
+seaborn
+matplotlib
+openpyxl 
+'''
