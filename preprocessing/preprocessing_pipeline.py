@@ -91,3 +91,23 @@ def preprocess_df(df):
     df = df.drop(columns=['Player', 'Team', 'Score'], errors='ignore')
 
     return df, sofaScore_rating_df
+# Add a standardized date conversion function (add after fix_dates function):
+def standardize_date_format(date_str):
+    """Convert date string to standard YYYY-MM-DD format."""
+    try:
+        # Parse from DD/MM/YYYY format
+        if isinstance(date_str, str):
+            if len(date_str) == 8:  # DDMMYYYY
+                return pd.to_datetime(date_str, format="%d%m%Y")
+            elif len(date_str) == 7:  # DMMYYYY or DDMYYYY
+                # Apply custom handling based on your fix_dates function
+                pass
+        return pd.to_datetime(date_str)
+    except:
+        return None
+
+# Then modify line 46:
+df['Date'] = pd.to_datetime(df['Date'], format="%d%m%Y", errors="coerce")
+
+# To:
+df['Date'] = df['Date'].apply(standardize_date_format)

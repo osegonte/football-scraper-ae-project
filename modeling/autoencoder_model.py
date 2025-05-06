@@ -16,7 +16,7 @@ def clean_dataset(df):
     return df
 
 class AggregatedPlayerDataset(Dataset):
-    def _init_(self, df, target_date, alpha=0.1):
+    def __init__(self, df, target_date, alpha=0.1):
         df = clean_dataset(df)
         if 'Home/Away' in df.columns:
             df['Home/Away'] = pd.to_numeric(df['Home/Away'], errors='coerce')
