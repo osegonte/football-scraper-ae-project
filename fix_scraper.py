@@ -1,4 +1,192 @@
+#!/usr/bin/env python3
 """
+Improved Football Scraper Fix
+===================
+Script to fix the SofaScore scraper issues with dependency handling.
+This creates a new improved version of the scraper that uses both API
+and browser-based approaches for maximum reliability.
+"""
+
+import os
+import sys
+import shutil
+import argparse
+import subprocess
+import importlib.util
+
+# Check for required dependencies
+REQUIRED_PACKAGES = [
+    "requests",
+    "pandas",
+    "selenium"
+]
+
+def check_package(package_name):
+    """Check if a package is installed"""
+    return importlib.util.find_spec(package_name) is not None
+
+def install_package(package_name):
+    """Install a package using pip"""
+    print(f"Installing {package_name}...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error installing {package_name}: {e}")
+        return False
+
+def check_and_install_dependencies():
+    """Check all required dependencies and install missing ones"""
+    missing_packages = [pkg for pkg in REQUIRED_PACKAGES if not check_package(pkg)]
+    
+    if not missing_packages:
+        print("All required dependencies are already installed.")
+        return True
+    
+    print(f"Missing dependencies: {', '.join(missing_packages)}")
+    if input("Install missing dependencies? (y/n): ").lower() != 'y':
+        print("Aborted.")
+        return False
+    
+    for package in missing_packages:
+        if not install_package(package):
+            print(f"Failed to install {package}. Please install it manually with 'pip install {package}'")
+            return False
+    
+    print("All dependencies installed successfully.")
+    return True
+
+def create_backup(file_path):
+    """Create a backup of the original file"""
+    if os.path.exists(file_path):
+        backup_path = f"{file_path}.bak"
+        shutil.copy2(file_path, backup_path)
+        print(f"Created backup at {backup_path}")
+        return True
+    return False
+
+def get_selenium_version():
+    """Get the installed selenium version"""
+    try:
+        import selenium
+        return selenium.__version__
+    except ImportError:
+        return None
+
+def update_scraper_code(selenium_version):
+    """
+    Update scraper code based on selenium version
+    Returns the modified code that works with the installed selenium version
+    """
+    code = UPDATED_SCRAPER_CODE
+    
+    # If using Selenium 4+, we need to ensure Service is imported correctly
+    if selenium_version and selenium_version.startswith('4'):
+        code = code.replace(
+            "from selenium.webdriver.chrome.service import Service",
+            "from selenium.webdriver.chrome.service import Service"
+        )
+    # For Selenium 3.x compatibility
+    elif selenium_version and selenium_version.startswith('3'):
+        code = code.replace(
+            "service = Service(executable_path=driver_path)\n            return webdriver.Chrome(service=service, options=chrome_options)",
+            "return webdriver.Chrome(executable_path=driver_path, options=chrome_options)"
+        )
+        code = code.replace(
+            "from selenium.webdriver.chrome.service import Service",
+            "# Service not needed for Selenium 3.x"
+        )
+    
+    return code
+
+def main():
+    parser = argparse.ArgumentParser(description="Fix the SofaScore scraper issues")
+    parser.add_argument('--install', action='store_true', help='Install the updated scraper')
+    parser.add_argument('--test', action='store_true', help='Test the scraper with a sample match')
+    parser.add_argument('--url', help='URL to test with', default="https://www.sofascore.com/manchester-city-arsenal/UbsIdWb")
+    parser.add_argument('--output', help='Output CSV filename for test', default="test_match.csv")
+    parser.add_argument('--skip-deps', action='store_true', help='Skip dependency check')
+    args = parser.parse_args()
+    
+    # Check dependencies unless skipped
+    if not args.skip_deps:
+        if not check_and_install_dependencies():
+            return 1
+    
+    # Path to the original scraper
+    scraper_path = os.path.join('scraper', 'sofascore_scraper.py')
+    
+    if args.install:
+        # Create a backup of the original file
+        if create_backup(scraper_path):
+            print(f"Installing updated scraper to {scraper_path}")
+            
+            # Get selenium version and update code accordingly
+            selenium_version = get_selenium_version()
+            adapted_code = update_scraper_code(selenium_version)
+            
+            # Write the updated scraper code
+            with open('updated_sofascore_scraper.py', 'w', encoding='utf-8') as f:
+                f.write(adapted_code)
+            
+            # Move it to the correct location
+            shutil.move('updated_sofascore_scraper.py', scraper_path)
+            print("Installation complete!")
+        else:
+            print(f"Error: Could not find original scraper at {scraper_path}")
+            return 1
+    
+    if args.test:
+        print(f"Testing scraper with URL: {args.url}")
+        print(f"Output will be saved to: {args.output}")
+        
+        # Run the scraper with appropriate error handling
+        cmd = f"{sys.executable} {scraper_path} --url \"{args.url}\" --output \"{args.output}\" --verbose"
+        print(f"Running: {cmd}")
+        
+        try:
+            process = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+            print(process.stdout)
+            
+            # Check if the output file was created
+            if os.path.exists(args.output):
+                print(f"Success! Output file created at {args.output}")
+                
+                # Show a preview of the data
+                try:
+                    import pandas as pd
+                    data = pd.read_csv(args.output)
+                    print(f"\nSuccessfully scraped {len(data)} rows of data.")
+                    print("\nPreview of first 5 rows:")
+                    print(data.head().to_string())
+                except Exception as e:
+                    print(f"Error previewing data: {e}")
+            else:
+                print(f"Error: Output file not created")
+                if process.stderr:
+                    print("\nError output:")
+                    print(process.stderr)
+                return 1
+                
+        except subprocess.CalledProcessError as e:
+            print(f"Error running scraper: {e}")
+            if e.stdout:
+                print("\nOutput:")
+                print(e.stdout)
+            if e.stderr:
+                print("\nError output:")
+                print(e.stderr)
+            return 1
+    
+    if not args.install and not args.test:
+        print("Please specify --install and/or --test")
+        parser.print_help()
+        return 1
+        
+    return 0
+
+# Updated scraper code (complete code here)
+UPDATED_SCRAPER_CODE = '''"""
 SofaScore Scraper (Updated)
 =================
 Updated script to scrape detailed player statistics from SofaScore football matches.
@@ -679,7 +867,7 @@ def finalize_game_metadata(driver, df):
         date_found = False
         
         date_selectors = [
-            "div.d_flex.ai_center.br_lg.bg-c_surface\.s2.py_xs.px_sm.mb_xs.h_\[26px\]",
+            "div.d_flex.ai_center.br_lg.bg-c_surface\\.s2.py_xs.px_sm.mb_xs.h_\\[26px\\]",
             "//div[contains(@class, 'date')]",
             "//span[contains(@class, 'date')]"
         ]
@@ -865,3 +1053,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+'''
+
+if __name__ == "__main__":
+    sys.exit(main())
