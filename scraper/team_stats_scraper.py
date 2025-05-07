@@ -509,9 +509,9 @@ def map_specific_stats(stats_dict):
         stats_dict['home_distance_covered'] = 0
         stats_dict['away_distance_covered'] = 0
 
-def get_team_last_matches(team_name, num_matches=7):
+def get_team_matches_api(team_name, num_matches=7):
     """
-    Gets the last N matches for a specific team.
+    Gets the last N matches for a specific team using SofaScore's API.
     
     Args:
         team_name (str): Name of the team
@@ -520,163 +520,157 @@ def get_team_last_matches(team_name, num_matches=7):
     Returns:
         list: List of match data dictionaries
     """
-    driver = create_driver()
-    team_matches = []
+    import requests
+    from datetime import datetime, timedelta
+    import time
+    import json
     
+    # Create a session with browser-like headers
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'application/json',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.sofascore.com/'
+    })
+    
+    # Step 1: Search for the team ID
+    search_url = f"https://api.sofascore.com/api/v1/search/teams/{team_name}"
     try:
-        # Search for the team on SofaScore
-        driver.get("https://www.sofascore.com/")
-        time.sleep(2)
+        response = session.get(search_url)
+        search_data = response.json()
         
-        # Find search box and input team name - with fallbacks
-        search_box = None
-        try:
-            search_box = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input.Input.ezmCXj"))
-            )
-        except TimeoutException:
-            try:
-                search_box = WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='search']"))
-                )
-            except TimeoutException:
-                try:
-                    search_box = driver.find_element(By.XPATH, "//input[contains(@placeholder, 'Search')]")
-                except NoSuchElementException:
-                    print(f"Could not find search input for {team_name}")
-                    return []
-        
-        if search_box:
-            search_box.clear()
-            search_box.send_keys(team_name)
-            time.sleep(2)
-        else:
-            print(f"No search box found for {team_name}")
-            return []
-        
-        # Click on the first search result (should be the team)
-        try:
-            first_result = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "a.SearchResultItem.fjVBon, a[class*='SearchResult']"))
-            )
-            first_result.click()
-        except TimeoutException:
-            try:
-                # Try alternative selector
-                first_result = driver.find_element(By.XPATH, "//div[contains(@class, 'search')]//a")
-                first_result.click()
-            except NoSuchElementException:
-                print(f"No search results found for {team_name}")
-                return []
-        
-        time.sleep(3)  # Wait for page to load
-        
-        # Find and click on the "Matches" tab
-        tabs = []
-        try:
-            tabs = WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.Box.bkrWzf.Tab.cbSGUp, div[class*='Tab']"))
-            )
-        except TimeoutException:
-            print(f"Could not find tabs for {team_name}")
-            return []
-        
-        matches_tab = None
-        for tab in tabs:
-            if "MATCHES" in tab.text.upper():
-                matches_tab = tab
-                break
-        
-        if matches_tab:
-            matches_tab.click()
-            time.sleep(2)
-        else:
-            print(f"Could not find Matches tab for {team_name}")
-            return []
-        
-        # Find the finished matches section
-        finished_section = None
-        try:
-            # Try multiple selectors
-            selectors = [
-                "//div[contains(text(), 'Finished')]",
-                "//div[text()='Finished']",
-                "//div[contains(@class, 'finished') or contains(@class, 'Finished')]"
-            ]
-            
-            for selector in selectors:
-                try:
-                    finished_section = driver.find_element(By.XPATH, selector)
+        # Extract team ID from search results
+        team_id = None
+        if 'results' in search_data and search_data['results']:
+            # Look for exact or close match
+            for result in search_data['results']:
+                if result['name'].lower() == team_name.lower() or team_name.lower() in result['name'].lower():
+                    team_id = result['id']
                     break
-                except NoSuchElementException:
-                    continue
-        except Exception as e:
-            print(f"Error finding finished matches section: {e}")
         
-        if not finished_section:
-            print(f"Could not find finished matches section for {team_name}")
+        if not team_id:
+            print(f"Could not find team ID for {team_name}")
             return []
             
-        # Get match links
-        match_links = []
-        try:
-            match_links = finished_section.find_elements(By.XPATH, "following-sibling::div//a")
-        except NoSuchElementException:
-            try:
-                # Try alternative approach - find all match links and filter later
-                match_links = driver.find_elements(By.XPATH, "//a[contains(@href, '/match/')]")
-            except:
-                print(f"Could not find match links for {team_name}")
-                return []
+        print(f"Found team ID {team_id} for {team_name}")
         
-        # Get the most recent matches
-        match_urls = []
-        for i, link in enumerate(match_links):
-            if i >= num_matches:
-                break
+        # Step 2: Get team's last matches
+        team_url = f"https://api.sofascore.com/api/v1/team/{team_id}/events/last/{num_matches}"
+        response = session.get(team_url)
+        events_data = response.json()
+        
+        if 'events' not in events_data:
+            print(f"No match data found for {team_name}")
+            return []
+        
+        # Process match data
+        matches = []
+        for event in events_data['events']:
+            # Check if it's a finished match
+            if event['status']['type'] != 'finished':
+                continue
                 
+            # Get team and opponent info
+            home_team = event['homeTeam']['name']
+            away_team = event['awayTeam']['name']
+            is_home = home_team == team_name
+            opponent = away_team if is_home else home_team
+            
+            # Get score
+            home_score = event['homeScore']['current']
+            away_score = event['awayScore']['current']
+            
+            # Get date
+            match_timestamp = event['startTimestamp']
+            match_date = datetime.fromtimestamp(match_timestamp).strftime('%Y%m%d')
+            
+            # Create match ID
+            match_id = f"{match_date}_{home_team}_{away_team}"
+            
+            # Get tournament/league info
+            league_name = event['tournament']['name']
+            league_id = str(event['tournament']['id'])
+            
+            # Create record for this team
+            team_record = {
+                'match_id': match_id,
+                'date': match_date,
+                'team': team_name,
+                'opponent': opponent,
+                'gf': home_score if is_home else away_score,
+                'ga': away_score if is_home else home_score,
+                'home/away': '1' if is_home else '0',
+                'league_id': league_id,
+                'league_name': league_name,
+                'scrape_date': datetime.now().isoformat()
+            }
+            
+            # Get detailed stats if available
             try:
-                url = link.get_attribute('href')
-                if url and '/match/' in url:
-                    match_urls.append(url)
-            except StaleElementReferenceException:
-                print(f"Link element became stale")
-                continue
+                stats_url = f"https://api.sofascore.com/api/v1/event/{event['id']}/statistics"
+                response = session.get(stats_url)
+                stats_data = response.json()
+                
+                if 'statistics' in stats_data:
+                    # Process home/away team statistics
+                    home_stats = stats_data['statistics'][0]['groups']
+                    away_stats = stats_data['statistics'][1]['groups']
+                    
+                    # Find the relevant stats for our team
+                    team_stats = home_stats if is_home else away_stats
+                    
+                    # Extract and add the stats we need
+                    for group in team_stats:
+                        for stat in group['statisticsItems']:
+                            # Map common stat names to our format
+                            if stat['name'] == 'Total shots':
+                                team_record['sh'] = stat['home' if is_home else 'away']
+                            elif stat['name'] == 'Shots on target':
+                                team_record['sot'] = stat['home' if is_home else 'away']
+                            elif stat['name'] == 'Distance covered':
+                                # Convert distance to km if needed
+                                dist_value = stat['home' if is_home else 'away']
+                                if isinstance(dist_value, str) and 'km' in dist_value:
+                                    team_record['dist'] = float(dist_value.replace('km', '').strip())
+                                else:
+                                    team_record['dist'] = dist_value
             except Exception as e:
-                print(f"Error getting match URL: {e}")
-                continue
+                print(f"Error getting detailed stats: {e}")
+            
+            # Set default values for any missing fields
+            team_record.setdefault('sh', 0)
+            team_record.setdefault('sot', 0)
+            team_record.setdefault('dist', 0)
+            team_record.setdefault('fk', 0)
+            team_record.setdefault('pk', 0)
+            team_record.setdefault('pkatt', 0)
+            
+            matches.append(team_record)
+            
+        print(f"Found {len(matches)} matches for {team_name}")
+        return matches
         
-        # Scrape each match
-        for url in match_urls:
-            try:
-                print(f"Scraping match: {url}")
-                match_data = scrape_team_match_stats(url, driver)
-                if match_data:
-                    team_matches.extend(match_data)
-                # Add delay between matches
-                time.sleep(1)
-            except Exception as e:
-                print(f"Error scraping match {url}: {e}")
-                continue
-    
     except Exception as e:
         print(f"Error getting matches for {team_name}: {e}")
+        import traceback
         traceback.print_exc()
+        return []
     
-    finally:
-        driver.quit()
+def get_team_last_matches(team_name, num_matches=7):
+    """
+    Gets the last N matches for a specific team, trying API first,
+    then falling back to browser if needed.
+    """
+    # Try API approach first
+    matches = get_team_matches_api(team_name, num_matches)
     
-    # Filter to include only matches for the requested team and remove duplicates
-    filtered_matches = []
-    match_ids = set()
+    # If API failed, fall back to browser approach
+    if not matches:
+        print(f"API approach failed for {team_name}, trying browser fallback...")
+        matches = get_team_last_matches_browser(team_name, num_matches)
     
-    for match in team_matches:
-        if match['team'] == team_name and match['match_id'] not in match_ids:
-            filtered_matches.append(match)
-            match_ids.add(match['match_id'])
-    
-    print(f"Found {len(filtered_matches)} unique matches for {team_name}")
-    return filtered_matches
+    return matches
 
 def main():
     parser = argparse.ArgumentParser(description="Scrape team statistics from SofaScore.")

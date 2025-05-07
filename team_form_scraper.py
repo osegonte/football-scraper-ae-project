@@ -14,59 +14,7 @@ import json
 from scraper.team_stats_scraper import get_team_last_matches
 from preprocessing.team_stats_preprocessing import preprocess_team_stats, compile_team_recent_form
 
-def scrape_team_data(team_names, num_matches=7, output_dir="data"):
-    """
-    Scrape match data for multiple teams and save to CSV.
-    
-    Args:
-        team_names (list): List of team names to scrape
-        num_matches (int): Number of recent matches to retrieve
-        output_dir (str): Directory to save output files
-        
-    Returns:
-        pd.DataFrame: Combined dataframe of all team match data
-    """
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
-    
-    all_match_data = []
-    
-    for i, team in enumerate(team_names):
-        print(f"[{i+1}/{len(team_names)}] Scraping data for {team}...")
-        
-        try:
-            # Get recent matches for team
-            team_matches = get_team_last_matches(team, num_matches)
-            
-            if team_matches:
-                # Save team data to individual CSV
-                team_df = pd.DataFrame(team_matches)
-                team_filename = os.path.join(output_dir, f"{team.replace(' ', '_')}_matches.csv")
-                team_df.to_csv(team_filename, index=False)
-                print(f"  - Saved {len(team_matches)} matches to {team_filename}")
-                
-                # Add to combined data
-                all_match_data.extend(team_matches)
-            else:
-                print(f"  - No match data found for {team}")
-                
-            # Wait between teams to avoid overloading the server
-            if i < len(team_names) - 1:
-                time.sleep(2)
-                
-        except Exception as e:
-            print(f"  - Error scraping data for {team}: {e}")
-    
-    # Create and save combined dataset if we have data
-    if all_match_data:
-        combined_df = pd.DataFrame(all_match_data)
-        combined_filename = os.path.join(output_dir, "all_team_matches.csv")
-        combined_df.to_csv(combined_filename, index=False)
-        print(f"Saved combined data with {len(all_match_data)} matches to {combined_filename}")
-        return combined_df
-    else:
-        print("No match data was collected.")
-        return pd.DataFrame()
+team_matches = get_team_last_matches(team, num_matches)
 
 def analyze_team_form(match_data_df, target_date=None, num_matches=7, output_dir="outputs"):
     """
